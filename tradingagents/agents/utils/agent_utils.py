@@ -23,6 +23,8 @@ from tradingagents.agents.utils.news_data_tools import (
     get_news,
 )
 from tradingagents.agents.utils.volatility_tool import get_volatility_analysis
+from tradingagents.agents.utils.competitor_comparison_tool import get_competitor_comparison
+
 from tradingagents.agents.utils.prediction_markets_tools import get_prediction_markets
 from tradingagents.agents.utils.technical_indicators_tools import get_indicators
 
@@ -47,7 +49,8 @@ __all__ = [
     "get_language_instruction",
     "create_msg_delete",
     "get_ma_crossover",
-    "get_volatility_analysis"
+    "get_volatility_analysis",
+    "get_competitor_comparison",
 ]
 
 logger = logging.getLogger(__name__)

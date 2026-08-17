@@ -15,6 +15,37 @@ from .stockstats_utils import (
 from .symbol_utils import NoMarketDataError, normalize_symbol
 
 
+CANONICAL_FUNDAMENTALS_FIELDS = [
+    ("name", "Name"),
+    ("sector", "Sector"),
+    ("industry", "Industry"),
+    ("market_cap", "Market Cap"),
+    ("pe_ratio", "PE Ratio (TTM)"),
+    ("forward_pe", "Forward PE"),
+    ("peg_ratio", "PEG Ratio"),
+    ("price_to_book", "Price to Book"),
+    ("eps", "EPS (TTM)"),
+    ("forward_eps", "Forward EPS"),
+    ("dividend_yield", "Dividend Yield"),
+    ("beta", "Beta"),
+    ("fifty_two_week_high", "52 Week High"),
+    ("fifty_two_week_low", "52 Week Low"),
+    ("fifty_day_avg", "50 Day Average"),
+    ("two_hundred_day_avg", "200 Day Average"),
+    ("revenue_ttm", "Revenue (TTM)"),
+    ("gross_profit", "Gross Profit"),
+    ("ebitda", "EBITDA"),
+    ("net_income", "Net Income"),
+    ("profit_margin", "Profit Margin"),
+    ("operating_margin", "Operating Margin"),
+    ("return_on_equity", "Return on Equity"),
+    ("return_on_assets", "Return on Assets"),
+    ("debt_to_equity", "Debt to Equity"),
+    ("current_ratio", "Current Ratio"),
+    ("book_value", "Book Value"),
+    ("free_cash_flow", "Free Cash Flow"),
+]
+
 def get_YFin_data_online(
     symbol: Annotated[str, "ticker symbol of the company"],
     start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
@@ -68,6 +99,58 @@ def get_YFin_data_online(
     header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
     return header + csv_string
+
+def get_fundamentals_raw(
+    ticker: Annotated[str, "ticker symbol of the company"],
+    curr_date: Annotated[str, "current date (not used for yfinance)"] = None,
+) -> dict:
+    """
+    Get company fundamentals as a raw dict with canonical field names, from yfinance.
+ 
+    Returns None if no data is found (caller decides how to surface the error) —
+    kept separate from get_fundamentals's string error messages, since callers of
+    the raw version (e.g. get_competitor_comparison) need to branch on absence of
+    data programmatically, not parse an error string.
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker.upper())
+        info = yf_retry(lambda: ticker_obj.info)
+ 
+        if not info:
+            return None
+ 
+        return {
+            "name": info.get("longName"),
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+            "market_cap": info.get("marketCap"),
+            "pe_ratio": info.get("trailingPE"),
+            "forward_pe": info.get("forwardPE"),
+            "peg_ratio": info.get("pegRatio"),
+            "price_to_book": info.get("priceToBook"),
+            "eps": info.get("trailingEps"),
+            "forward_eps": info.get("forwardEps"),
+            "dividend_yield": info.get("dividendYield"),
+            "beta": info.get("beta"),
+            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            "fifty_day_avg": info.get("fiftyDayAverage"),
+            "two_hundred_day_avg": info.get("twoHundredDayAverage"),
+            "revenue_ttm": info.get("totalRevenue"),
+            "gross_profit": info.get("grossProfits"),
+            "ebitda": info.get("ebitda"),
+            "net_income": info.get("netIncomeToCommon"),
+            "profit_margin": info.get("profitMargins"),
+            "operating_margin": info.get("operatingMargins"),
+            "return_on_equity": info.get("returnOnEquity"),
+            "return_on_assets": info.get("returnOnAssets"),
+            "debt_to_equity": info.get("debtToEquity"),
+            "current_ratio": info.get("currentRatio"),
+            "book_value": info.get("bookValue"),
+            "free_cash_flow": info.get("freeCashflow"),
+        }
+    except Exception:
+        return None
 
 def get_stock_stats_indicators_window(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -275,65 +358,24 @@ def get_fundamentals(
     ticker: Annotated[str, "ticker symbol of the company"],
     curr_date: Annotated[str, "current date (not used for yfinance)"] = None
 ):
-    """Get company fundamentals overview from yfinance."""
-    canonical = normalize_symbol(ticker)
+    """Get company fundamentals overview from yfinance (formatted text report)."""
     try:
-        ticker_obj = yf.Ticker(canonical)
-        info = yf_retry(lambda: ticker_obj.info)
-
-        if not info:
-            raise NoMarketDataError(ticker, canonical, "no fundamentals returned")
-
-        fields = [
-            ("Name", info.get("longName")),
-            ("Sector", info.get("sector")),
-            ("Industry", info.get("industry")),
-            ("Market Cap", info.get("marketCap")),
-            ("PE Ratio (TTM)", info.get("trailingPE")),
-            ("Forward PE", info.get("forwardPE")),
-            ("PEG Ratio", info.get("pegRatio")),
-            ("Price to Book", info.get("priceToBook")),
-            ("EPS (TTM)", info.get("trailingEps")),
-            ("Forward EPS", info.get("forwardEps")),
-            ("Dividend Yield", info.get("dividendYield")),
-            ("Beta", info.get("beta")),
-            ("52 Week High", info.get("fiftyTwoWeekHigh")),
-            ("52 Week Low", info.get("fiftyTwoWeekLow")),
-            ("50 Day Average", info.get("fiftyDayAverage")),
-            ("200 Day Average", info.get("twoHundredDayAverage")),
-            ("Revenue (TTM)", info.get("totalRevenue")),
-            ("Gross Profit", info.get("grossProfits")),
-            ("EBITDA", info.get("ebitda")),
-            ("Net Income", info.get("netIncomeToCommon")),
-            ("Profit Margin", info.get("profitMargins")),
-            ("Operating Margin", info.get("operatingMargins")),
-            ("Return on Equity", info.get("returnOnEquity")),
-            ("Return on Assets", info.get("returnOnAssets")),
-            ("Debt to Equity", info.get("debtToEquity")),
-            ("Current Ratio", info.get("currentRatio")),
-            ("Book Value", info.get("bookValue")),
-            ("Free Cash Flow", info.get("freeCashflow")),
-        ]
-
+        raw = get_fundamentals_raw(ticker, curr_date)
+ 
+        if not raw:
+            return f"No fundamentals data found for symbol '{ticker}'"
+ 
         lines = []
-        for label, value in fields:
+        for key, label in CANONICAL_FUNDAMENTALS_FIELDS:
+            value = raw.get(key)
             if value is not None:
                 lines.append(f"{label}: {value}")
-
-        # yfinance returns a stub dict (e.g. {"trailingPegRatio": None}) for
-        # unknown symbols, so `info` is truthy but every field is empty. Treat
-        # "no usable fields" as no data rather than emitting a bare header the
-        # agent might fabricate around.
-        if not lines:
-            raise NoMarketDataError(ticker, canonical, "no fundamental fields returned")
-
-        header = f"# Company Fundamentals for {canonical}\n"
+ 
+        header = f"# Company Fundamentals for {ticker.upper()}\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-
+ 
         return header + "\n".join(lines)
-
-    except NoMarketDataError:
-        raise
+ 
     except Exception as e:
         return f"Error retrieving fundamentals for {ticker}: {str(e)}"
 

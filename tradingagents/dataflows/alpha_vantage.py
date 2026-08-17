@@ -3,6 +3,7 @@
 from .alpha_vantage_fundamentals import (
     get_balance_sheet,
     get_cashflow,
+    get_fundamentals_raw,
     get_fundamentals,
     get_income_statement,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "get_balance_sheet",
     "get_cashflow",
     "get_fundamentals",
+    "get_fundamentals_raw",
     "get_income_statement",
     "get_indicator",
     "get_global_news",
