@@ -15,8 +15,11 @@ from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
     get_cashflow,
+    get_competitor_comparison,
     get_fundamentals,
+    get_volatility_analysis,
     get_global_news,
+    get_ma_crossover,
     get_income_statement,
     get_indicators,
     get_insider_transactions,
@@ -194,6 +197,8 @@ class TradingAgentsGraph:
                     get_stock_data,
                     # Technical indicators
                     get_indicators,
+                    get_ma_crossover,
+                    get_volatility_analysis,
                     # Deterministic verification snapshot (bound to the analyst
                     # LLM and required by its prompt; must be executable here or
                     # the call fails and the model reports it "unavailable").
@@ -223,6 +228,7 @@ class TradingAgentsGraph:
                     get_balance_sheet,
                     get_cashflow,
                     get_income_statement,
+                    get_competitor_comparison,
                 ]
             ),
         }
