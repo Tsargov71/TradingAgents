@@ -78,9 +78,9 @@ def get_volatility_analysis(
     width_ratio = current_width / avg_width if avg_width else 1.0
 
     if width_ratio <= 0.7:
-        squeeze_state = f"bande in compressione ({current_width:.2f}% vs media {avg_width:.2f}%) â possibile preludio a un breakout"
+        squeeze_state = f"bande in compressione ({current_width:.2f}% vs media {avg_width:.2f}%) è possibile preludio a un breakout"
     elif width_ratio >= 1.3:
-        squeeze_state = f"bande in espansione ({current_width:.2f}% vs media {avg_width:.2f}%) â volatilitÃ  elevata in corso"
+        squeeze_state = f"bande in espansione ({current_width:.2f}% vs media {avg_width:.2f}%) volatilità  elevata in corso"
     else:
         squeeze_state = f"ampiezza bande nella norma ({current_width:.2f}% vs media {avg_width:.2f}%)"
 
@@ -88,9 +88,9 @@ def get_volatility_analysis(
     avg_atr = df["atr"].tail(atr_lookback).mean()
     atr_ratio = atr / avg_atr if avg_atr else 1.0
     if atr_ratio >= 1.2:
-        atr_trend = f"in aumento ({atr:.2f} vs media {avg_atr:.2f} sugli ultimi {atr_lookback} giorni) â volatilitÃ  in crescita"
+        atr_trend = f"in aumento ({atr:.2f} vs media {avg_atr:.2f} sugli ultimi {atr_lookback} giorni) volatilità  in crescita"
     elif atr_ratio <= 0.8:
-        atr_trend = f"in calo ({atr:.2f} vs media {avg_atr:.2f} sugli ultimi {atr_lookback} giorni) â volatilitÃ  in contrazione"
+        atr_trend = f"in calo ({atr:.2f} vs media {avg_atr:.2f} sugli ultimi {atr_lookback} giorni) volatilità  in contrazione"
     else:
         atr_trend = f"stabile ({atr:.2f} vs media {avg_atr:.2f} sugli ultimi {atr_lookback} giorni)"
 
