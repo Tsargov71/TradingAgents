@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, RemoveMessage
 
 # Import tools from separate utility files
 from tradingagents.agents.utils.core_stock_tools import get_stock_data
+from tradingagents.agents.utils.ma_crossover_tool import get_ma_crossover
 from tradingagents.agents.utils.fundamental_data_tools import (
     get_balance_sheet,
     get_cashflow,
@@ -21,6 +22,9 @@ from tradingagents.agents.utils.news_data_tools import (
     get_insider_transactions,
     get_news,
 )
+from tradingagents.agents.utils.volatility_tool import get_volatility_analysis
+from tradingagents.agents.utils.competitor_comparison_tool import get_competitor_comparison
+
 from tradingagents.agents.utils.prediction_markets_tools import get_prediction_markets
 from tradingagents.agents.utils.technical_indicators_tools import get_indicators
 
@@ -44,6 +48,9 @@ __all__ = [
     "get_instrument_context_from_state",
     "get_language_instruction",
     "create_msg_delete",
+    "get_ma_crossover",
+    "get_volatility_analysis",
+    "get_competitor_comparison",
 ]
 
 logger = logging.getLogger(__name__)

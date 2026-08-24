@@ -4,8 +4,9 @@ from .alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
     get_fundamentals as get_alpha_vantage_fundamentals,
+    get_fundamentals_raw as get_alpha_vantage_fundamentals_raw,
     get_global_news as get_alpha_vantage_global_news,
-    get_income_statement as get_alpha_vantage_income_statement,
+    get_income_statement as get_alpha_vantage_income_statement,    
     get_indicator as get_alpha_vantage_indicator,
     get_insider_transactions as get_alpha_vantage_insider_transactions,
     get_news as get_alpha_vantage_news,
@@ -22,6 +23,7 @@ from .polymarket import get_prediction_markets as get_polymarket_prediction_mark
 from .y_finance import (
     get_balance_sheet as get_yfinance_balance_sheet,
     get_cashflow as get_yfinance_cashflow,
+    get_fundamentals_raw as get_yfinance_fundamentals_raw,
     get_fundamentals as get_yfinance_fundamentals,
     get_income_statement as get_yfinance_income_statement,
     get_insider_transactions as get_yfinance_insider_transactions,
@@ -50,6 +52,7 @@ TOOLS_CATEGORIES = {
         "description": "Company fundamentals",
         "tools": [
             "get_fundamentals",
+            "get_fundamentals_raw",
             "get_balance_sheet",
             "get_cashflow",
             "get_income_statement"
@@ -140,6 +143,10 @@ VENDOR_METHODS = {
     # prediction_markets
     "get_prediction_markets": {
         "polymarket": get_polymarket_prediction_markets,
+    },
+    "get_fundamentals_raw": {
+        "alpha_vantage": get_alpha_vantage_fundamentals_raw,
+        "yfinance": get_yfinance_fundamentals_raw,
     },
 }
 
