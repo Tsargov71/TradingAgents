@@ -10,10 +10,22 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    environment:
+      # Keep the model resident in VRAM for the whole session instead of
+      # unloading after 5 min idle — avoids repeated cold-load timeouts
+      # mid-run (a full TradingAgents pass makes 16-22 LLM calls).
+      - OLLAMA_KEEP_ALIVE=24h
     volumes:
       - ollama_data:/root/.ollama
     profiles:
       - ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   tradingagents-ollama:
     build: .
@@ -24,6 +36,9 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434/v1
     volumes:
       - tradingagents_data:/home/appuser/.tradingagents
+      - ./tradingagents:/home/appuser/app/tradingagents
+      - ./cli:/home/appuser/app/cli
+      - ./tools_debug:/home/appuser/app/tools_debug
     depends_on:
       - ollama
     tty: true

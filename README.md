@@ -30,6 +30,7 @@
 # TradingAgents: Multi-Agents LLM Financial Trading Framework
 
 ## News
+- [2026-08] **Local fork updates**: three new analyst tools (`get_ma_crossover`, `get_volatility_analysis`, `get_competitor_comparison`), scripted RTX 5090 + Ollama setup under [`scripts/`](#local-gpu-setup-rtx-5090--ollama), and a sequential, caching debug harness under [`tools_debug/`](#debugging-tools_debug).
 - [2026-07] **TradingAgents v0.3.1** released with correctness and stability fixes: Alpha Vantage look-ahead filtering, graph-router crash-safety, graph-shape-aware checkpoint resume, working crypto sentiment sources, a configurable LLM retry budget, Bedrock API-key auth, and Claude Sonnet 5 / Fable 5 support. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 - [2026-06] **TradingAgents v0.3.0** released with a verified data-access contract, an expanded provider registry (NVIDIA, Kimi, Groq, Mistral, Bedrock, and any OpenAI-compatible endpoint), FRED and Polymarket data vendors, a current-generation model catalog, and a CI gate.
 - [2026-05] **TradingAgents v0.2.5** released with the grounded Sentiment Analyst, GPT-5.5 etc. model coverage, Qwen/GLM/MiniMax dual-region support, `TRADINGAGENTS_*` env-var configurability with API-key auto-detection, remote Ollama support, non-US alpha benchmarks, and ticker path-traversal hardening.
@@ -126,6 +127,50 @@ For local models with Ollama:
 ```bash
 docker compose --profile ollama run --rm tradingagents-ollama
 ```
+
+### Local GPU setup (RTX 5090 + Ollama)
+
+Helper scripts in `./scripts/` wrap the whole Docker + Ollama setup for a local
+Blackwell GPU. Run them from the repo root.
+
+**One time** — builds the CUDA 12.8 image and brings up Ollama:
+
+```bash
+bash scripts/setup_gpu_trading_agents.sh
+```
+
+**Every session** — start or stop the Ollama container:
+
+```bash
+bash scripts/ollama_ctl.sh start      # up + pre-warm the model + GPU check
+bash scripts/ollama_ctl.sh stop       # stop and free VRAM (model stays on disk)
+bash scripts/ollama_ctl.sh restart
+```
+
+`start` pre-warms the model on purpose. Without it the first LLM call has to sit
+through a ~20 GB cold load from disk, and the client gives up with a `499` before
+`llama-server` is ready — the run dies before the first analyst produces anything.
+`stop` only stops the container: the model stays in the `ollama_data` volume, so
+the next `start` does not re-download it.
+
+**Interactive shell** inside the app container (source dirs are bind-mounted, so
+edits on the host take effect with no rebuild):
+
+```bash
+bash scripts/start_bash.sh
+```
+
+Two things worth knowing about the GPU path:
+
+- The `ollama` service needs an explicit GPU reservation in `docker-compose.yml`
+  (`deploy.resources.reservations.devices`). Without it Ollama silently runs on
+  CPU — it still answers, just very slowly. Confirm with
+  `docker compose --profile ollama logs ollama | grep -i cuda`; you should see the
+  RTX 5090 listed under `inference compute`.
+- Under rootless Docker, files written by the container are owned by a remapped
+  UID, so the host user may not be able to overwrite them. If VS Code reports
+  `EACCES` on a file in a bind-mounted folder, delete it from the host and save
+  again rather than trying to `chown` it.
 
 ### Required APIs
 
@@ -282,6 +327,86 @@ config["temperature"] = 0.0
 What does not vary anymore: the analyzed company identity is resolved deterministically from the ticker before any agent runs, and the market analyst grounds exact price and indicator claims in a verified data snapshot. Earlier reports of "different companies" or fabricated price levels across runs are addressed by these two mechanisms.
 
 Backtest results are not guaranteed to match any published figure. Returns depend on the model, the temperature, the date range, data quality, and the sampling above. Treat the framework as a research scaffold for studying multi-agent analysis, not as a strategy with a fixed, replicable return.
+
+## Debugging: `tools_debug/`
+
+The Rich CLI is good for watching a run, bad for understanding one — it hides
+every prompt, tool call and intermediate report behind a progress panel.
+`tools_debug/` runs the *same* pipeline (same agent prompts, same
+`ConditionalLogic` routing) as an explicit sequential loop instead of a compiled
+LangGraph `StateGraph`, prints one line per operation, and writes an artifact for
+each one.
+
+Run it from the repo root, inside the container:
+
+```bash
+python -u -m tools_debug.main_debug \
+  --ticker SNA \
+  --analysts market,fundamentals \
+  --out-dir tools_debug/run_output_SNA
+```
+
+`-u` disables Python's stdout buffering (without it the output arrives in
+blocks and the run looks frozen); `-m` with the dotted path is required because
+`tools_debug` is a package — calling `python tools_debug/main_debug.py` puts
+`tools_debug/` itself on `sys.path` and the internal import fails.
+
+| Flag | Meaning |
+|---|---|
+| `--ticker` | ticker to analyze (default `WSM`) |
+| `--date` | analysis date, `YYYY-MM-DD` |
+| `--analysts` | comma-separated: `market,social,news,fundamentals` |
+| `--out-dir` | where artifacts go — use one per ticker |
+| `--from-step N` | delete cached artifacts from ledger op `N` onward, then run |
+| `--fresh` | wipe the output dir and recompute everything |
+
+### What it produces
+
+```
+run_output_SNA/
+├── ledger.jsonl              every operation, in order, with hit/miss status
+├── steps/NNN_<node>.json     state delta produced by each node
+├── cache/tools/<name>_<h>.json   tool call: args + full output
+├── cache/llm/<hash>.json         LLM call: full prompt + completion
+├── reports/<key>.md          each report section as it is produced
+└── final_decision.md
+```
+
+### Why the caching matters when editing tools
+
+Cache keys are **content hashes**, not step numbers. Edit a tool, re-run, and:
+the tool's output changes → the analyst's next prompt changes → that LLM call's
+key changes → it and everything after it recompute, while every step before it
+stays a cache hit. You do not have to work out which downstream steps went stale.
+
+So the normal loop while iterating on a tool is just:
+
+```bash
+python -u -m tools_debug.main_debug --ticker SNA --analysts market,fundamentals
+# edit tradingagents/agents/utils/<your_tool>.py
+python -u -m tools_debug.main_debug --ticker SNA --analysts market,fundamentals
+```
+
+Use `--from-step N` only to force a replay that content hashing would not catch
+(e.g. re-verifying a step that produced byte-identical output). Read
+`ledger.jsonl` to pick `N`.
+
+Interrupting a run is safe: completed tool calls and LLM answers are already on
+disk, so re-running picks up where it stopped.
+
+### Gotcha: a bound tool is not an advertised tool
+
+A tool must be in three places to be usable end to end:
+
+1. bound to the analyst (`tools = [...]` in the analyst factory),
+2. registered in the matching `ToolNode` in `trading_graph._create_tool_nodes`,
+3. **named in the analyst's `system_message`**.
+
+Miss (2) and the call fails at execution. Miss (3) and the tool still *works*,
+but the model is never told to use it — it only appears in the generic
+"You have access to the following tools: {tool_names}" line, so whether it ever
+fires is left to the model's discretion. If a new tool never shows up in
+`ledger.jsonl`, check (3) before assuming the tool is broken.
 
 ## Contributing
 
