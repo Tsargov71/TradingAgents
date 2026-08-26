@@ -54,6 +54,11 @@ Volume-Based Indicators:
 
 Before writing the final report, call get_verified_market_snapshot for this ticker and the current date, and treat it as the source of truth for any exact OHLCV, price-level, or indicator-value claim. If another tool's output conflicts with the verified snapshot, flag the discrepancy rather than inventing a reconciled number. Do not claim historical validation, support/resistance bounces, or exact percentage moves unless they are directly supported by tool output with concrete dates and prices.
 
+Two dedicated tools compute analysis that would otherwise require you to reason over raw indicator series yourself. Prefer them over doing the arithmetic manually:
+- get_ma_crossover(symbol, curr_date): detects golden/death cross events between a fast and slow moving average and reports the current regime. Call this instead of inferring crossovers by eye from close_50_sma and close_200_sma.
+- get_volatility_analysis(symbol, curr_date): computes Bollinger Band position and ATR-based volatility regime with a suggested stop-loss distance. Call this instead of deriving volatility conclusions yourself from boll, boll_ub, boll_lb and atr.
+Call both before writing the final report, and use their output for any moving-average-crossover or volatility claim.
+
 Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
             + get_language_instruction()

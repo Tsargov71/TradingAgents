@@ -23,6 +23,12 @@ Typical loop while debugging a tool:
     # to start completely clean:
     python -u tools_debug/main_debug.py --fresh
 
+    # example with a ticker:
+    python -u -m tools_debug.main_debug \
+        --ticker SNA \
+        --analysts market,fundamentals \
+        --out-dir tools_debug/run_output_SNA
+
 Inspect ledger.jsonl to see the ordered list of operations and pick the
 number to rewind to.
 """

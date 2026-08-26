@@ -11,10 +11,12 @@ services:
   ollama:
     image: ollama/ollama:latest
     environment:
-      # Keep the model resident in VRAM for the whole session instead of
-      # unloading after 5 min idle — avoids repeated cold-load timeouts
-      # mid-run (a full TradingAgents pass makes 16-22 LLM calls).
       - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_CONTEXT_LENGTH=65536
+      # Halves KV-cache memory, which is what buys back the VRAM the
+      # larger window costs.
+      - OLLAMA_FLASH_ATTENTION=true
+      - OLLAMA_KV_CACHE_TYPE=q8_0
     volumes:
       - ollama_data:/root/.ollama
     profiles:
