@@ -3,8 +3,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from tradingagents.agents.utils.ma_crossover_tool import get_ma_crossover
-from tradingagents.agents.utils.volatility_tool import get_volatility_analysis
+from tradingagents.agents.ma_crossover_tool import get_ma_crossover
+from tradingagents.agents.volatility_tool import get_volatility_analysis
 
 
 @pytest.mark.unit
@@ -20,7 +20,7 @@ class TestMACrossoverTool(unittest.TestCase):
         })
         self.assertIn("Error: fast_period (50) must be smaller than slow_period (20)", result)
 
-    @patch("tradingagents.agents.utils.ma_crossover_tool._get_stock_stats_bulk")
+    @patch("tradingagents.agents.ma_crossover_tool._get_stock_stats_bulk")
     def test_computes_bullish_trend_and_golden_cross(self, mock_get_stats):
         """Simula dati storici e verifica il calcolo di un trend bullish e Golden Cross."""
         def mock_stats(symbol, indicator, curr_date):
@@ -49,7 +49,7 @@ class TestMACrossoverTool(unittest.TestCase):
         self.assertIn("Golden cross on 2026-01-02", result)
         self.assertIn("1 trading days ago", result)
 
-    @patch("tradingagents.agents.utils.ma_crossover_tool._get_stock_stats_bulk")
+    @patch("tradingagents.agents.ma_crossover_tool._get_stock_stats_bulk")
     def test_handles_insufficient_history(self, mock_get_stats):
         """Verifica la gestione di dati storici insufficienti o valori N/A."""
         mock_get_stats.return_value = {
@@ -70,7 +70,7 @@ class TestMACrossoverTool(unittest.TestCase):
 @pytest.mark.unit
 class TestVolatilityTool(unittest.TestCase):
 
-    @patch("tradingagents.agents.utils.volatility_tool._get_volatility_frame")
+    @patch("tradingagents.agents.volatility_tool._get_volatility_frame")
     def test_computes_volatility_analysis(self, mock_get_frame):
         """Verifica che la generazione del report di volatilitÃ  funzioni correttamente con dati validi."""
         # Crea uno storico mock di 25 righe (superiore al requisito minimo atr_lookback + 1 = 21)
@@ -97,7 +97,7 @@ class TestVolatilityTool(unittest.TestCase):
         self.assertIn("Suggested stop-loss", result)
         self.assertNotIn("Error", result)
 
-    @patch("tradingagents.agents.utils.volatility_tool._get_volatility_frame")
+    @patch("tradingagents.agents.volatility_tool._get_volatility_frame")
     def test_volatility_handles_data_error(self, mock_get_frame):
         """Verifica la gestione dell'eccezione se il caricamento del frame fallisce."""
         mock_get_frame.side_effect = Exception("Data loading error")
@@ -109,7 +109,7 @@ class TestVolatilityTool(unittest.TestCase):
 
         self.assertIn("Error computing volatility analysis for AAPL", result)
 
-    @patch("tradingagents.agents.utils.volatility_tool._get_volatility_frame")
+    @patch("tradingagents.agents.volatility_tool._get_volatility_frame")
     def test_volatility_handles_insufficient_data(self, mock_get_frame):
         """Verifica che avvisi l'utente se la lunghezza del dataframe Ã¨ inferiore a atr_lookback + 1."""
         dates = pd.date_range(end="2026-01-04", periods=5).strftime("%Y-%m-%d").tolist()

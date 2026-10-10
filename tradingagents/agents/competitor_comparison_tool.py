@@ -1,7 +1,7 @@
 from langchain_core.tools import tool
 from typing import Annotated
 from datetime import datetime
-from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.dataflows.router import route_to_vendor
 
 COMPARISON_FIELDS = [
     ("market_cap", "Market Cap"),

@@ -4,7 +4,7 @@ from langchain_core.tools import tool
 import pandas as pd
 from stockstats import wrap
 
-from tradingagents.dataflows.stockstats_utils import load_ohlcv
+from tradingagents.dataflows.vendors.yahoo.ohlcv import load_ohlcv
 
 
 def _get_volatility_frame(symbol: str, curr_date: str) -> pd.DataFrame:

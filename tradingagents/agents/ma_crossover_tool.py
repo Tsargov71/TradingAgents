@@ -5,7 +5,7 @@ import pandas as pd
 from stockstats import wrap
 
 # load_ohlcv gestisce giÃ  cache (5 anni di storico) e taglio look-ahead a curr_date
-from tradingagents.dataflows.stockstats_utils import load_ohlcv
+from tradingagents.dataflows.vendors.yahoo.ohlcv import load_ohlcv
 
 
 def _get_stock_stats_bulk(symbol: str, indicator: str, curr_date: str) -> dict:

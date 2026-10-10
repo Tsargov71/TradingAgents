@@ -9,6 +9,7 @@ from tradingagents.agents.tools import (
     get_income_statement,
     get_insider_transactions,
 )
+from tradingagents.agents.competitor_comparison_tool import get_competitor_comparison
 
 # The tools this analyst is offered; its tool node is built from the same tuple.
 TOOLS = (
@@ -17,7 +18,7 @@ TOOLS = (
     get_cashflow,
     get_income_statement,
     get_insider_transactions,
-    get_competitor_comparison,
+    get_competitor_comparison
 )
 
 
@@ -25,14 +26,6 @@ def create_fundamentals_analyst(llm):
     def fundamentals_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = get_instrument_context_from_state(state)
-
-        tools = [
-            get_fundamentals,
-            get_balance_sheet,
-            get_cashflow,
-            get_income_statement,
-            get_competitor_comparison,
-        ]
 
         system_message = (
             "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
