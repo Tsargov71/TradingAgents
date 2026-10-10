@@ -14,6 +14,3 @@ ta = TradingAgentsGraph(debug=True, config=config)
 # forward propagate
 _, decision = ta.propagate("LDO.MI", "2026-08-17")
 print(decision)
-
-# Memorize mistakes and reflect
-# ta.reflect_and_remember(1000) # parameter is the position returns
