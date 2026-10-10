@@ -30,6 +30,7 @@
 # TradingAgents: Multi-Agents LLM Financial Trading Framework
 
 ## News
+- [2026-10] **Local fork merged with upstream 0.6.0**: the three analyst tools and the `tools_debug/` runner were ported to the new package layout and the parallel-analyst graph. Full list of the fork's changes: [`CHANGES_FORK.md`](CHANGES_FORK.md).
 - [2026-08] **Local fork updates**: three new analyst tools (`get_ma_crossover`, `get_volatility_analysis`, `get_competitor_comparison`), scripted RTX 5090 + Ollama setup under [`scripts/`](#local-gpu-setup-rtx-5090--ollama), and a sequential, caching debug harness under [`tools_debug/`](#debugging-tools_debug).
 
 <!-- news:start -->
@@ -452,6 +453,11 @@ every prompt, tool call and intermediate report behind a progress panel.
 LangGraph `StateGraph`, prints one line per operation, and writes an artifact for
 each one.
 
+It differs from the production graph in two ways: the analysts run one after
+another (production runs them in parallel), each on its own message history, and
+their tools run through a `ToolNode` built from the same `TOOLS` tuple the graph
+uses, because the data tools read the ticker and the trade date from the graph state.
+
 Run it from the repo root, inside the container:
 
 ```bash
@@ -494,11 +500,17 @@ the tool's output changes → the analyst's next prompt changes → that LLM cal
 key changes → it and everything after it recompute, while every step before it
 stays a cache hit. You do not have to work out which downstream steps went stale.
 
+A tool's cache key also includes the ticker and the trade date, and the LLM key
+ignores `usage_metadata` (LangChain adds it to answers served from a cache), so a
+second run with the same inputs is served from the cache. The Portfolio Manager
+can still recompute, because the first run's decision is now in the memory log.
+Caches written by the pre-0.6.0 runner are not reused: run once with `--fresh`.
+
 So the normal loop while iterating on a tool is just:
 
 ```bash
 python -u -m tools_debug.main_debug --ticker SNA --analysts market,fundamentals
-# edit tradingagents/agents/utils/<your_tool>.py
+# edit tradingagents/agents/<your_tool>.py
 python -u -m tools_debug.main_debug --ticker SNA --analysts market,fundamentals
 ```
 
@@ -509,19 +521,21 @@ Use `--from-step N` only to force a replay that content hashing would not catch
 Interrupting a run is safe: completed tool calls and LLM answers are already on
 disk, so re-running picks up where it stopped.
 
-### Gotcha: a bound tool is not an advertised tool
+### Gotcha: a registered tool is not an advertised tool
 
-A tool must be in three places to be usable end to end:
+A tool must be in two places to be usable end to end:
 
-1. bound to the analyst (`tools = [...]` in the analyst factory),
-2. registered in the matching `ToolNode` in `trading_graph._create_tool_nodes`,
-3. **named in the analyst's `system_message`**.
+1. the `TOOLS` tuple of the analyst's module (e.g. `market_analyst.py`). The
+   tool list in the prompt, the binding to the model and the graph's `ToolNode`
+   are all built from that one tuple, so a tool can no longer be bound to the
+   model and missing from the node,
+2. **named in the analyst's `system_message`**.
 
-Miss (2) and the call fails at execution. Miss (3) and the tool still *works*,
+Miss (1) and the model never sees the tool. Miss (2) and the tool still *works*,
 but the model is never told to use it — it only appears in the generic
 "You have access to the following tools: {tool_names}" line, so whether it ever
 fires is left to the model's discretion. If a new tool never shows up in
-`ledger.jsonl`, check (3) before assuming the tool is broken.
+`ledger.jsonl`, check (2) before assuming the tool is broken.
 
 ## Contributing
 
