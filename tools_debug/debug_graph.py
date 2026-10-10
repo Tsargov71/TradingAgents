@@ -18,10 +18,21 @@ every step before it stays a cache hit. Invalidation cascades on its own; you
 don't have to reason about which downstream steps went stale.
 
 Agent node code is NOT duplicated here. The create_*_node factories from
-tradingagents.agents are reused as-is, and ConditionalLogic is reused for
-routing, so this debug runner exercises the same prompts and the same
-branching as production. What's rewritten is only the orchestration: an
-explicit Python loop instead of a compiled StateGraph.
+tradingagents.agents are reused as-is, the analysts' tools come from the same
+TOOLS tuples the production graph builds its ToolNodes from, and
+ConditionalLogic is reused for routing, so this debug runner exercises the
+same prompts, tools and branching as production. What's rewritten is only the
+orchestration: an explicit Python loop instead of a compiled StateGraph.
+
+Differences from production worth knowing (graph layout of tradingagents 0.6):
+  * production runs the analysts and the Memory Log step in parallel; here they
+    run one after another, in the order given by --analysts;
+  * each analyst keeps a PRIVATE message history and contributes only its
+    report, exactly like its sub-graph in graph/setup.py, including the
+    wrap-up turn once config["max_tool_rounds"] is spent;
+  * tools run through a LangGraph ToolNode (not a bare tool.invoke), because
+    the data tools take the ticker and trade date from the graph state
+    (InjectedState). The tool cache key therefore includes both.
 
 Layout produced under <out_dir>:
     ledger.jsonl              append-only record of every op, in order
@@ -41,9 +52,11 @@ from typing import Any
 
 from langchain_core.caches import BaseCache
 from langchain_core.globals import set_llm_cache
-from langchain_core.messages import AIMessage, ToolMessage, convert_to_messages
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, convert_to_messages
 from langchain_core.outputs import ChatGeneration
+from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode
 
 from tradingagents.agents import (
     create_aggressive_debator,
@@ -52,7 +65,6 @@ from tradingagents.agents import (
     create_conservative_debator,
     create_fundamentals_analyst,
     create_market_analyst,
-    create_msg_delete,
     create_neutral_debator,
     create_news_analyst,
     create_portfolio_manager,
@@ -60,12 +72,19 @@ from tradingagents.agents import (
     create_sentiment_analyst,
     create_trader,
 )
+from tradingagents.agents.analysts.turn import WRAP_UP
+from tradingagents.agents.rating import run_rating
+from tradingagents.agents.state import AgentState
+from tradingagents.dataflows.config import run_config
 from tradingagents.graph.analyst_execution import build_analyst_execution_plan
-from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.graph.trading_graph import TradingAgentsGraph, _validate_trade_date
 
 REPORT_KEYS = ("market_report", "fundamentals_report", "sentiment_report", "news_report")
 
 
+# --------------------------------------------------------------------------
+# LLM cache
+# --------------------------------------------------------------------------
 def _sha(*parts: str) -> str:
     h = hashlib.sha256()
     for p in parts:
@@ -93,8 +112,33 @@ class FileLLMCache(BaseCache):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.on_event = on_event or (lambda **kw: None)
 
+    @staticmethod
+    def _stable(prompt: str) -> str:
+        """The prompt with per-message ``usage_metadata`` removed.
+
+        langchain stamps a message it serves from a cache with its own
+        ``usage_metadata``, so the same history reads differently after a fresh
+        call and after a cache hit, and every later prompt would get a new key
+        on the second run (a miss), only settling on the third. The token
+        counts say nothing about what the model is asked, so they are left out
+        of the key.
+        """
+        try:
+            data = json.loads(prompt)
+        except (TypeError, ValueError):
+            return prompt
+
+        def strip(node):
+            if isinstance(node, dict):
+                return {k: strip(v) for k, v in node.items() if k != "usage_metadata"}
+            if isinstance(node, list):
+                return [strip(v) for v in node]
+            return node
+
+        return json.dumps(strip(data), sort_keys=True, ensure_ascii=False)
+
     def _path(self, prompt: str, llm_string: str) -> Path:
-        return self.cache_dir / f"{_sha(prompt, llm_string)}.json"
+        return self.cache_dir / f"{_sha(self._stable(prompt), llm_string)}.json"
 
     def lookup(self, prompt: str, llm_string: str):
         path = self._path(prompt, llm_string)
@@ -162,7 +206,7 @@ class TradingAgentsGraphDebug(TradingAgentsGraph):
     """Sequential, artifact-producing, resumable version of TradingAgentsGraph.
 
     Use `run_sequential()` instead of `propagate()`. Everything else
-    (LLM clients, tool nodes, memory log, signal processing) is inherited
+    (LLM clients, memory log, settlement, report/state logging) is inherited
     unchanged from the production class.
     """
 
@@ -185,12 +229,25 @@ class TradingAgentsGraphDebug(TradingAgentsGraph):
         # survive across runs without touching a single line of agent code.
         set_llm_cache(FileLLMCache(self.llm_cache_dir, on_event=self._record))
 
-        # name -> tool, taken from the ToolNodes the production class already
-        # built, so any tool added there (e.g. the new ma_crossover /
-        # volatility / competitor_comparison tools) is picked up automatically.
-        self._tools_by_name: dict[str, Any] = {}
-        for node in self.tool_nodes.values():
-            self._tools_by_name.update(getattr(node, "tools_by_name", {}) or {})
+        # One ToolNode per analyst, built from the same TOOLS tuple the
+        # production graph uses (graph/setup.py), so any tool added to an
+        # analyst's TOOLS (e.g. get_ma_crossover, get_volatility_analysis,
+        # get_competitor_comparison) is picked up automatically.
+        plan = build_analyst_execution_plan(self.selected_analysts)
+        self._tool_nodes: dict[str, ToolNode] = {
+            spec.key: ToolNode(list(spec.tools)) for spec in plan.specs if spec.tools
+        }
+        # A ToolNode needs a graph runtime to inject state into the tools, so
+        # each one is run inside a one-node graph (START -> tools -> END).
+        self._tool_graphs = {key: self._one_node_graph(node) for key, node in self._tool_nodes.items()}
+
+    @staticmethod
+    def _one_node_graph(node: ToolNode):
+        graph = StateGraph(AgentState)
+        graph.add_node("tools", node)
+        graph.add_edge(START, "tools")
+        graph.add_edge("tools", END)
+        return graph.compile()
 
     # ---------------- ledger + artifacts ----------------
     def _last_seq_in_ledger(self) -> int:
@@ -225,46 +282,62 @@ class TradingAgentsGraphDebug(TradingAgentsGraph):
         return self._seq
 
     # ---------------- cached tool execution ----------------
-    def _run_tool(self, name: str, args: dict) -> str:
-        """Execute one tool call, or return its cached output.
+    def _run_tool(self, spec_key: str, call: dict, state: dict) -> ToolMessage:
+        """Execute one tool call (through the analyst's ToolNode), or return its cached output.
 
-        Cache key is (tool name, args), so identical calls across runs are
-        free. Delete the file to force one specific tool call to re-run.
+        Cache key is (tool name, args, ticker, trade date): the data tools read
+        the last two from the graph state, so they are part of what the call
+        depends on. Delete the file to force one specific call to re-run.
+        Errors are returned to the model as tool output but never cached, so
+        fixing the tool makes the next run recompute it.
         """
-        args_json = json.dumps(args, sort_keys=True, default=str)
-        path = self.tool_cache_dir / f"{name}_{_sha(name, args_json)}.json"
+        name, args, call_id = call["name"], call.get("args", {}), call["id"]
+        key = json.dumps(
+            {"args": args, "ticker": state["company_of_interest"], "date": state["trade_date"]},
+            sort_keys=True, default=str,
+        )
+        path = self.tool_cache_dir / f"{name}_{_sha(name, key)}.json"
 
         if path.exists():
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                out = data["output"]
+                out = json.loads(path.read_text(encoding="utf-8"))["output"]
                 self._record("tool", "hit", path.name, name, f"{len(out)} chars")
-                return out
+                return ToolMessage(content=out, name=name, tool_call_id=call_id)
             except (json.JSONDecodeError, KeyError, OSError):
                 pass  # corrupt artifact: fall through and recompute
 
-        tool = self._tools_by_name.get(name)
-        if tool is None:
-            # Bound to the LLM but absent from every ToolNode -> would also
-            # fail in production. Surfaced explicitly instead of silently.
-            err = f"ERROR: tool '{name}' is not registered in any ToolNode"
+        node = self._tool_nodes.get(spec_key)
+        if node is None or name not in node.tools_by_name:
+            # Bound to the LLM but absent from the analyst's ToolNode -> would
+            # also fail in production. Surfaced explicitly instead of silently.
+            err = f"ERROR: tool '{name}' is not registered in the {spec_key} ToolNode"
             self._record("tool", "miss", "", name, err)
-            return err
+            return ToolMessage(content=err, name=name, tool_call_id=call_id)
 
+        request = AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": call_id,
+                                                      "type": "tool_call"}])
         try:
-            out = str(tool.invoke(args))
+            result = self._tool_graphs[spec_key].invoke(
+                {**state, "messages": [*state["messages"], request]})
+            reply = result["messages"][-1]
         except Exception as e:  # keep the run alive; the error becomes the tool output
             out = f"ERROR calling {name}: {e}"
             self._record("tool", "miss", "", name, out)
-            return out
+            return ToolMessage(content=out, name=name, tool_call_id=call_id)
+
+        out = reply.content if isinstance(reply.content, str) else str(reply.content)
+        if getattr(reply, "status", "success") == "error":
+            self._record("tool", "miss", "", name, out)
+            return ToolMessage(content=out, name=name, tool_call_id=call_id)
 
         path.write_text(
-            json.dumps({"tool": name, "args": args, "output": out,
+            json.dumps({"tool": name, "args": args, "ticker": state["company_of_interest"],
+                        "trade_date": state["trade_date"], "output": out,
                         "computed_at": time.time()}, indent=2, default=str),
             encoding="utf-8",
         )
         self._record("tool", "miss", path.name, name, f"{len(out)} chars")
-        return out
+        return ToolMessage(content=out, name=name, tool_call_id=call_id)
 
     # ---------------- state helpers ----------------
     @staticmethod
@@ -272,11 +345,9 @@ class TradingAgentsGraphDebug(TradingAgentsGraph):
         """Apply a node's return value to the state.
 
         Uses LangGraph's own `add_messages` reducer for the `messages` key
-        rather than a hand-rolled append. That reducer is what the compiled
-        StateGraph uses via MessagesState, and it does two things a naive
-        append does not: it COERCES raw ("human", "TEXT") tuples into real
-        Message objects (create_initial_state seeds one), and it applies
-        RemoveMessage deletions. Every other key is replaced.
+        rather than a hand-rolled append, so raw ("human", "TEXT") tuples are
+        coerced into Message objects and RemoveMessage deletions apply, as in
+        the compiled graph. Every other key is replaced.
         """
         for key, val in (delta or {}).items():
             if key == "messages":
@@ -302,113 +373,108 @@ class TradingAgentsGraphDebug(TradingAgentsGraph):
                 (self.reports_dir / f"{key}.md").write_text(delta[key], encoding="utf-8")
         return state
 
-    def _drain_tool_calls(self, state: dict) -> bool:
-        """If the last message requested tools, run them all and append results.
+    def _run_analyst(self, spec, agent, state: dict) -> str:
+        """One analyst's tool loop on a private history; returns its report.
 
-        Returns True if any tool ran (i.e. the analyst should be called again).
+        Mirrors the sub-graph in graph/setup.py: the model answers, its tool
+        calls run, and once `max_tool_rounds` rounds of calls are spent it is
+        asked to write its report (the wrap-up turn), which ends the analyst.
         """
-        last = state["messages"][-1]
-        calls = getattr(last, "tool_calls", None) or []
-        if not calls:
-            return False
-        for call in calls:
-            output = self._run_tool(call["name"], call.get("args", {}))
-            state["messages"].append(
-                ToolMessage(content=output, name=call["name"], tool_call_id=call["id"])
-            )
-        return True
+        local = {**state, "messages": list(state["messages"])}
+        max_rounds = self.config["max_tool_rounds"]
+        while True:
+            self._run_node(spec.agent_node, agent, local)
+            calls = getattr(local["messages"][-1], "tool_calls", None) or []
+            if not calls or spec.key not in self._tool_nodes:
+                break
+            for call in calls:
+                local["messages"].append(self._run_tool(spec.key, call, local))
+            rounds = sum(1 for m in local["messages"] if getattr(m, "tool_calls", None))
+            if rounds >= max_rounds:
+                self._run_node(
+                    f"{spec.agent_node} wrap-up",
+                    lambda s: agent({**s, "messages": [*s["messages"], HumanMessage(WRAP_UP)]}),
+                    local,
+                )
+                break
+        return local.get(spec.report_key, "")
 
     # ---------------- the sequential pipeline ----------------
-    def run_sequential(self, ticker: str, trade_date: str, asset_type: str = "stock"):
+    def run_sequential(self, ticker: str, trade_date: str, asset_type: str = "stock",
+                       portfolio=None):
         """Run the whole pipeline as explicit sequential steps.
 
-        Same node order and same routing decisions as the compiled graph,
-        but every step is observable, cached and resumable.
+        Same nodes and same routing decisions as the compiled graph, but every
+        step is observable, cached and resumable. Returns (state, rating).
         """
+        trade_date = _validate_trade_date(trade_date)
         self.ticker = ticker
 
-        self._record("node", "done", "", "resolve_pending_entries", "memory log")
-        self._resolve_pending_entries(ticker)
+        with run_config(self.config):
+            state = self.create_run_state(ticker, trade_date, asset_type, portfolio)
+            # create_initial_state seeds messages as [("human", ticker)]; the
+            # compiled graph coerces that through its reducer, here it is done
+            # up front so no bare tuple reaches the agents.
+            state["messages"] = convert_to_messages(state["messages"])
+            self._record("node", "done", "", "resolve_instrument_context",
+                         state["instrument_context"][:120])
 
-        past_context = self.memory_log.get_past_context(ticker)
-        instrument_context = self.resolve_instrument_context(ticker, asset_type)
-        self._record("node", "done", "", "resolve_instrument_context", instrument_context[:120])
+            q, d = self.quick_thinking_llm, self.deep_thinking_llm
 
-        state = self.propagator.create_initial_state(
-            ticker, trade_date, asset_type=asset_type,
-            past_context=past_context, instrument_context=instrument_context,
-        )
-        # create_initial_state seeds messages as [("human", ticker)]. The
-        # compiled graph coerces that via its reducer on first update; here the
-        # first analyst node reads the list before any merge happens, so coerce
-        # it now rather than letting a bare tuple reach the agents.
-        state["messages"] = convert_to_messages(state["messages"])
+            # --- 0. memory log: settle past decisions, load lessons ---
+            state = self._run_node("Memory Log", self._memory_step, state)
 
-        q, d = self.quick_thinking_llm, self.deep_thinking_llm
-        analyst_factories = {
-            "market": lambda: create_market_analyst(q),
-            "social": lambda: create_sentiment_analyst(q),
-            "news": lambda: create_news_analyst(q),
-            "fundamentals": lambda: create_fundamentals_analyst(q),
-        }
-        msg_clear = create_msg_delete()
+            # --- 1. analysts, each with its own tool loop ---
+            analyst_factories = {
+                "market": lambda: create_market_analyst(q),
+                "social": lambda: create_sentiment_analyst(q),
+                "news": lambda: create_news_analyst(q),
+                "fundamentals": lambda: create_fundamentals_analyst(q),
+            }
+            plan = build_analyst_execution_plan(self.selected_analysts)
+            for spec in plan.specs:
+                agent = analyst_factories[spec.key]()
+                state[spec.report_key] = self._run_analyst(spec, agent, state)
 
-        # --- 1. analysts, each with its own tool loop ---
-        plan = build_analyst_execution_plan(self.selected_analysts)
-        for spec in plan.specs:
-            node_fn = analyst_factories[spec.key]()
-            router = getattr(self.conditional_logic, f"should_continue_{spec.key}")
+            # --- 2. bull/bear debate, routed by ConditionalLogic ---
+            debate_nodes = {
+                "Bull Researcher": create_bull_researcher(q),
+                "Bear Researcher": create_bear_researcher(q),
+            }
+            current = "Bull Researcher"
             while True:
-                state = self._run_node(spec.agent_node, node_fn, state)
-                if router(state) != spec.tool_node:
+                state = self._run_node(current, debate_nodes[current], state)
+                nxt = self.conditional_logic.should_continue_debate(state)
+                if nxt == "Research Manager":
                     break
-                if not self._drain_tool_calls(state):
+                current = nxt
+
+            state = self._run_node("Research Manager", create_research_manager(d), state)
+            state = self._run_node("Trader", create_trader(q), state)
+
+            # --- 3. risk debate ---
+            risk_nodes = {
+                "Aggressive Analyst": create_aggressive_debator(q),
+                "Conservative Analyst": create_conservative_debator(q),
+                "Neutral Analyst": create_neutral_debator(q),
+            }
+            current = "Aggressive Analyst"
+            while True:
+                state = self._run_node(current, risk_nodes[current], state)
+                nxt = self.conditional_logic.should_continue_risk_analysis(state)
+                if nxt == "Portfolio Manager":
                     break
-            state = self._run_node(spec.clear_node, msg_clear, state)
+                current = nxt
 
-        # --- 2. bull/bear debate, routed by ConditionalLogic ---
-        debate_nodes = {
-            "Bull Researcher": create_bull_researcher(q),
-            "Bear Researcher": create_bear_researcher(q),
-        }
-        current = "Bull Researcher"
-        while True:
-            state = self._run_node(current, debate_nodes[current], state)
-            nxt = self.conditional_logic.should_continue_debate(state)
-            if nxt == "Research Manager":
-                break
-            current = nxt
+            state = self._run_node("Portfolio Manager", create_portfolio_manager(d), state)
 
-        state = self._run_node("Research Manager", create_research_manager(d), state)
-        state = self._run_node("Trader", create_trader(q), state)
-
-        # --- 3. risk debate ---
-        risk_nodes = {
-            "Aggressive Analyst": create_aggressive_debator(q),
-            "Conservative Analyst": create_conservative_debator(q),
-            "Neutral Analyst": create_neutral_debator(q),
-        }
-        current = "Aggressive Analyst"
-        while True:
-            state = self._run_node(current, risk_nodes[current], state)
-            nxt = self.conditional_logic.should_continue_risk_analysis(state)
-            if nxt == "Portfolio Manager":
-                break
-            current = nxt
-
-        state = self._run_node("Portfolio Manager", create_portfolio_manager(d), state)
-
-        # --- 4. same persistence tail as _run_graph() ---
-        self.curr_state = state
-        self._log_state(trade_date, state)
-        self.memory_log.store_decision(
-            ticker=ticker, trade_date=trade_date,
-            final_trade_decision=state["final_trade_decision"],
-        )
-        decision = self.process_signal(state["final_trade_decision"])
-        (self.out_dir / "final_decision.md").write_text(str(decision), encoding="utf-8")
-        self._record("node", "done", "final_decision.md", "FINISHED", str(decision))
-        return state, decision
+            # --- 4. same persistence tail as _run_graph() ---
+            self.curr_state = state
+            self.record_decision(ticker, trade_date, state)
+            rating = run_rating(state)
+            (self.out_dir / "final_decision.md").write_text(str(rating), encoding="utf-8")
+            self._record("node", "done", "final_decision.md", "FINISHED", str(rating))
+            return state, rating
 
     # ---------------- invalidation ----------------
     def invalidate_from(self, seq: int) -> int:

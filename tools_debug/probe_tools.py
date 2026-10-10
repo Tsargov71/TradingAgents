@@ -21,9 +21,9 @@ import traceback
 from tradingagents.dataflows.config import set_config
 from tradingagents.default_config import DEFAULT_CONFIG
 
-from tradingagents.agents.utils.ma_crossover_tool import get_ma_crossover
-from tradingagents.agents.utils.volatility_tool import get_volatility_analysis
-from tradingagents.agents.utils.competitor_comparison_tool import get_competitor_comparison
+from tradingagents.agents.ma_crossover_tool import get_ma_crossover
+from tradingagents.agents.volatility_tool import get_volatility_analysis
+from tradingagents.agents.competitor_comparison_tool import get_competitor_comparison
 
 
 def run(label: str, tool, args: dict, preview: int):

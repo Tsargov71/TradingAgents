@@ -10,7 +10,7 @@ Typical loop while debugging a tool:
     python -u tools_debug/main_debug.py                # first run: computes everything
     python -u tools_debug/main_debug.py                # second run: all cache hits, instant
 
-    # now edit tradingagents/agents/utils/competitor_comparison_tool.py ...
+    # now edit tradingagents/agents/competitor_comparison_tool.py ...
     python -u tools_debug/main_debug.py                # the edited tool re-runs on its own:
                                                        # its output changed -> the analyst
                                                        # prompt changed -> that LLM call and
