@@ -2,6 +2,7 @@
 
 import functools
 import logging
+import os
 from collections.abc import Mapping
 from typing import Any
 
@@ -9,6 +10,11 @@ from tradingagents.dataflows.date_window import is_historical
 from tradingagents.dataflows.vendors.yahoo.fundamentals import get_company_profile
 
 logger = logging.getLogger(__name__)
+
+
+def extra_tools_enabled() -> bool:
+    """False when TRADINGAGENTS_EXTRA_TOOLS=0: baseline run without the fork's three added tools."""
+    return os.getenv("TRADINGAGENTS_EXTRA_TOOLS", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
 def get_language_instruction() -> str:
