@@ -15,7 +15,7 @@ from langchain_core.globals import set_llm_cache
 
 from tests.test_graph_end_to_end import ARGS, TRADE_DATE, ScriptedModel, _Client, offline  # noqa: F401
 from tools_debug.debug_graph import TradingAgentsGraphDebug
-from tradingagents.agents import ma_crossover_tool, volatility_tool
+from tradingagents.agents import competitor_comparison_tool, ma_crossover_tool, volatility_tool
 from tradingagents.dataflows import router
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph import trading_graph
@@ -49,6 +49,11 @@ def test_a_debug_run_reaches_a_decision_and_the_second_run_is_all_cache_hits(
     raw = {"market_cap": 1.0e12, "pe_ratio": 30.0, "profit_margin": 0.25}
     for vendor in router.VENDOR_METHODS["get_fundamentals_raw"]:
         monkeypatch.setitem(router.VENDOR_METHODS["get_fundamentals_raw"], vendor, lambda *a, **k: dict(raw))
+    # TRADE_DATE is in the past, so the tool reads point-in-time figures from SEC
+    # EDGAR rather than the router; stub that path so the run stays offline.
+    pit = {"sic": "3674 Semiconductors", "fy_end": "2025-01-26", "market_cap": 1.0e12, "pe_ratio": 30.0,
+           "net_margin": 0.25}
+    monkeypatch.setattr(competitor_comparison_tool, "_get_pit_metrics", lambda *a, **k: (dict(pit), None))
 
     cfg = dict(DEFAULT_CONFIG)
     cfg.update(results_dir=str(tmp_path / "results"), data_cache_dir=str(tmp_path / "cache"),

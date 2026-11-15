@@ -3,6 +3,7 @@ from typing import Annotated
 import yfinance as yf
 
 from tradingagents.dataflows.date_window import (
+    is_historical,
     withhold_live_profile,
     withhold_undated_statements,
     withhold_undisclosed_trades,
@@ -183,6 +184,9 @@ def get_fundamentals_raw(
     the raw version (e.g. get_competitor_comparison) need to branch on absence of
     data programmatically, not parse an error string.
     """
+    if is_historical(curr_date):
+        return None
+
     try:
         ticker_obj = yf.Ticker(ticker.upper())
         info = yf_retry(lambda: ticker_obj.info)
