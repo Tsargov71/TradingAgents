@@ -21,12 +21,13 @@ if __name__ == "__main__":
     parser.add_argument("--start_date", type=str, default="2020-11-11")
     parser.add_argument("--magic_ranking_file", type=str, default="magic_formula_ranked_filtered.csv")
     parser.add_argument("--re_download", action="store_true")
+    parser.add_argument("--end_date", type=str, default=None, help="last day to download (default: today)")
     args = parser.parse_args()
 
     TOP_N = args.top_n
     DATA_DIR = args.data_dir
     START_DATE = args.start_date
-    END_DATE = pd.Timestamp(datetime.today().date())
+    END_DATE = pd.Timestamp(args.end_date) if args.end_date else pd.Timestamp(datetime.today().date())
 
 
     df_valid = pd.read_csv(args.magic_ranking_file)

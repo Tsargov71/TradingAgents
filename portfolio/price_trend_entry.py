@@ -53,15 +53,22 @@ from tqdm import tqdm
 from scipy.stats import spearmanr
 
 
-def _download_full_history(ticker, retries=3, backoff=2.0):
+def _download_full_history(ticker, retries=3, backoff=2.0, as_of=None):
     """Scarica tutta la storia disponibile per un ticker. period='max' fa
     si' che yfinance rilevi automaticamente la data di IPO/quotazione per
-    ciascun titolo, invece di usare una data di inizio fissa."""
+    ciascun titolo, invece di usare una data di inizio fissa.
+    Se as_of (yyyy-mm-dd) e' dato, scarica solo fino a quella data inclusa
+    (point-in-time: nessun prezzo successivo)."""
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            data = yf.download(ticker, period="max", interval="1d",
-                                progress=False, auto_adjust=True)
+            if as_of:
+                end = (pd.Timestamp(as_of) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")  # end e' esclusivo
+                data = yf.download(ticker, start="1970-01-01", end=end, interval="1d",
+                                    progress=False, auto_adjust=True)
+            else:
+                data = yf.download(ticker, period="max", interval="1d",
+                                    progress=False, auto_adjust=True)
             if data is None or data.empty:
                 raise ValueError("empty history")
             return data
@@ -222,7 +229,7 @@ def compute_trend_for_all(tickers, price_cache_dir, output_path, retries=3,
                            re_download=False, min_points=252, sleep_between=0.15,
                            flush_every=25, entry_window=252, entry_min_points=60,
                            z_entry=-1.0, recent_window=252, recent_min_points=120,
-                           blacklist_path="delisted_tickers.txt"):
+                           blacklist_path="delisted_tickers.txt", as_of=None):
     """Calcola (o riusa) il trend di prezzo (storico completo + finestra
     recente) e la stima di entry price per TUTTI i ticker forniti, salvando
     incrementalmente in output_path cosi' che l'elaborazione di
@@ -289,12 +296,23 @@ def compute_trend_for_all(tickers, price_cache_dir, output_path, retries=3,
             if os.path.exists(cache_path):
                 hist = pd.read_parquet(cache_path)
             else:
-                hist = _download_full_history(t, retries=retries)
+                hist = _download_full_history(t, retries=retries, as_of=as_of)
                 tmp_path = cache_path + ".tmp"
                 hist.to_parquet(tmp_path)
                 os.replace(tmp_path, cache_path)
                 n_downloaded += 1
                 time.sleep(sleep_between)  # non martellare l'API
+
+            if as_of:
+                # Point-in-time: anche una cache scaricata senza limite di data viene tagliata a as_of,
+                # e un titolo senza prezzi vicini a as_of (non quotato a quella data) viene scartato.
+                idx = hist.index.tz_localize(None) if getattr(hist.index, "tz", None) else hist.index
+                hist = hist[idx <= pd.Timestamp(as_of)]
+                if hist.empty:
+                    raise ValueError("empty history")
+                last_day = idx[idx <= pd.Timestamp(as_of)][-1]
+                if (pd.Timestamp(as_of) - last_day).days > 10:
+                    raise ValueError(f"no price near {as_of} (last price {last_day.date()})")
 
             close_col = "Close" if "Close" in hist.columns else hist.columns[0]
             close = hist[close_col].dropna().values
@@ -435,6 +453,8 @@ def main():
     parser.add_argument("--blacklist_file", type=str, default="delisted_tickers.txt",
                          help="file di testo (un ticker per riga) dei ticker noti come delistati, da saltare senza retry")
     parser.add_argument("--output", type=str, default="magic_formula_with_trend.csv")
+    parser.add_argument("--as_of", type=str, default=None,
+                         help="data soglia T (yyyy-mm-dd): usa solo prezzi fino a T incluso (point-in-time)")
     args = parser.parse_args()
 
     df_magic_full = pd.read_csv(args.magic_ranking_file)
@@ -454,6 +474,7 @@ def main():
             recent_window=args.recent_window,
             recent_min_points=args.recent_min_points,
             blacklist_path=args.blacklist_file,
+            as_of=args.as_of,
         )
 
     df_combined = combine_and_rank(

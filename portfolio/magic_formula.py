@@ -694,6 +694,7 @@ if __name__ == "__main__":
     parser.add_argument("--min_ebit_years", type=int, default=2)
     parser.add_argument("--n_years", type=int, default=5)
     parser.add_argument("--top_n", type=int, default=40)
+    parser.add_argument("--out_dir", type=str, default=".", help="cartella dove salvare i CSV")
 
     args = parser.parse_args()
 
@@ -704,8 +705,9 @@ if __name__ == "__main__":
     #df.to_csv("magic_formula_ranking.csv", index=False)
     df_all, df_ranked = prepare_and_rank(df, min_ebit_years=args.min_ebit_years, min_marketcap=5e9, max_marketcap=50e9, exclude_negative_ebit=True)
     # salva debug + ranking
-    df_all.to_csv("magic_formula_debug_flags.csv", index=False)
-    df_ranked.to_csv("magic_formula_ranked_filtered.csv", index=False)
+    os.makedirs(args.out_dir, exist_ok=True)
+    df_all.to_csv(os.path.join(args.out_dir, "magic_formula_debug_flags.csv"), index=False)
+    df_ranked.to_csv(os.path.join(args.out_dir, "magic_formula_ranked_filtered.csv"), index=False)
 
     #pdb.set_trace()
 
