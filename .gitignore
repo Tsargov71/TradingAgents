@@ -223,3 +223,11 @@ __marimo__/
 reports/
 tools_debug/run_output*/
 .env
+
+# magic formula data
+/portfolio/yf_data
+*.zip
+*.zip.part
+yf_data_pit_*
+results_T
+price_history_T
