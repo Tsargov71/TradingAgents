@@ -10,6 +10,46 @@ Run with --download the first time and set SEC_EDGAR_USER_AGENT="Your Name your.
 Limits to state in the report: the ticker list is today's, so companies delisted since are missing;
 Yahoo closes are split-adjusted up to today while the share counts are not; debt and cash come from the
 last 10-K; only USD-reporting 10-K filers are kept; a company with cash but no debt tag gets debt = 0.
+
+=============================================================================
+PERFORMANCE & ARCHITECTURE NOTE (Comparison with update_financials.py)
+=============================================================================
+This script completes execution in about 10 minutes, whereas the first script 
+(update_financials.py) takes hours. This massive performance gap is due to a 
+fundamental shift in architectural paradigm:
+
+1. DATA SOURCE & LOCAL PARSING (Bulk vs. Sequential):
+   - Script 1: Makes thousands of sequential, separate HTTP requests to Yahoo 
+     Finance (via yfinance) for every single ticker (financials, balance_sheet, info).
+   - This Script: Downloads two official SEC EDGAR bulk ZIP archives once 
+     (companyfacts.zip and submissions.zip) and processes all XBRL data entirely 
+     locally on disk/RAM, eliminating network latency for financial statements.
+
+2. RATE LIMITING & SLEEP PENALTIES:
+   - Script 1: Subjected to Yahoo Finance's strict rate limits. When a ticker fails 
+     or returns empty data, it executes multiple retries with exponential backoff 
+     (time.sleep), accumulating hours of total wait time across large universes.
+   - This Script: Performs local JSON file reads; tickers missing from bulk files 
+     are discarded instantly without any network pause.
+
+3. BATCHED MULTITHREADED PRICES:
+   - Script 1: Fetches metadata and prices ticker by ticker.
+   - This Script: Pre-filters "rankable" companies and downloads closing prices 
+     in batches (`yf.download`) in chunks of 100 tickers leveraging multithreading 
+     (`threads=True`).
+
+4. UPSTREAM UNIVERSE FILTERING:
+   - Script 1: Processes the entire DataFrame returned by `get_all_companies()` 
+     indiscriminately.
+   - This Script: Strictly selects only tickers listed on major exchanges 
+     (Nasdaq, NYSE, CBOE) and excludes financial and real estate sectors 
+     (SIC 6000-6799) before initiating any heavy computation.
+
+5. POINT-IN-TIME (PIT) RIGOR:
+   - Unlike Yahoo's live data, this script applies a strict temporal filter 
+     based on the actual 10-K filing date (`filed <= as_of`), guaranteeing 
+     zero look-ahead bias for Magic Formula backtesting.
+=============================================================================
 """
 import argparse
 import json
