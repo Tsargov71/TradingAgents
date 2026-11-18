@@ -10,13 +10,13 @@ from tradingagents.dataflows.vendors.yahoo.ohlcv import load_ohlcv
 def _get_volatility_frame(symbol: str, curr_date: str) -> pd.DataFrame:
     data = load_ohlcv(symbol, curr_date)
     df = wrap(data)
-    
-    # Se Date è datetime, formattalo
+
+    # If Date is a datetime, format it as a string
     if pd.api.types.is_datetime64_any_dtype(df["Date"]):
         df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
-            
+
     for col in ("boll", "boll_ub", "boll_lb", "atr"):
-        df[col] 
+        df[col]
         close_col = "close" if "close" in df.columns else "Close"
         return df[["Date", close_col, "boll", "boll_ub", "boll_lb", "atr"]].rename(
             columns={close_col: "close"}
@@ -54,23 +54,23 @@ def get_volatility_analysis(
     if len(df) < atr_lookback + 1:
         return f"Not enough history to compute volatility analysis for {symbol} as of {curr_date}."
 
-    last = df.iloc[-1]    
-    # Gestione sicura del nome della colonna Close (minuscola o maiuscola)
-    close_key = "close" if "close" in last.index else "Close"    
+    last = df.iloc[-1]
+    # Safe handling of the Close column name (lowercase or uppercase)
+    close_key = "close" if "close" in last.index else "Close"
     close, mid, ub, lb, atr = last[close_key], last["boll"], last["boll_ub"], last["boll_lb"], last["atr"]
 
-    # %B: 0 = sulla banda inferiore, 1 = sulla banda superiore, 0.5 = sulla media
+    # %B: 0 = on the lower band, 1 = on the upper band, 0.5 = on the middle band
     band_range = ub - lb
     percent_b = (close - lb) / band_range if band_range != 0 else 0.5
 
     if percent_b >= 0.8:
-        band_position = "vicino alla banda superiore (zona di potenziale ipercomprato)"
+        band_position = "near the upper band (potential overbought zone)"
     elif percent_b <= 0.2:
-        band_position = "vicino alla banda inferiore (zona di potenziale ipervenduto)"
+        band_position = "near the lower band (potential oversold zone)"
     else:
-        band_position = "in zona centrale, senza estremi"
+        band_position = "in the middle zone, no extremes"
 
-    # Ampiezza bande attuale vs media storica (proxy per squeeze/espansione)
+    # Current band width vs historical average (proxy for squeeze/expansion)
     df = df.copy()
     df["band_width_pct"] = (df["boll_ub"] - df["boll_lb"]) / df["boll"] * 100
     current_width = df["band_width_pct"].iloc[-1]
@@ -78,21 +78,21 @@ def get_volatility_analysis(
     width_ratio = current_width / avg_width if avg_width else 1.0
 
     if width_ratio <= 0.7:
-        squeeze_state = f"bande in compressione ({current_width:.2f}% vs media {avg_width:.2f}%) è possibile preludio a un breakout"
+        squeeze_state = f"bands squeezing ({current_width:.2f}% vs average {avg_width:.2f}%), possible prelude to a breakout"
     elif width_ratio >= 1.3:
-        squeeze_state = f"bande in espansione ({current_width:.2f}% vs media {avg_width:.2f}%) volatilità  elevata in corso"
+        squeeze_state = f"bands expanding ({current_width:.2f}% vs average {avg_width:.2f}%), high volatility under way"
     else:
-        squeeze_state = f"ampiezza bande nella norma ({current_width:.2f}% vs media {avg_width:.2f}%)"
+        squeeze_state = f"band width normal ({current_width:.2f}% vs average {avg_width:.2f}%)"
 
-    # ATR attuale vs media storica
+    # Current ATR vs historical average
     avg_atr = df["atr"].tail(atr_lookback).mean()
     atr_ratio = atr / avg_atr if avg_atr else 1.0
     if atr_ratio >= 1.2:
-        atr_trend = f"in aumento ({atr:.2f} vs media {avg_atr:.2f} sugli ultimi {atr_lookback} giorni) volatilità  in crescita"
+        atr_trend = f"rising ({atr:.2f} vs average {avg_atr:.2f} over the last {atr_lookback} days), volatility increasing"
     elif atr_ratio <= 0.8:
-        atr_trend = f"in calo ({atr:.2f} vs media {avg_atr:.2f} sugli ultimi {atr_lookback} giorni) volatilità  in contrazione"
+        atr_trend = f"falling ({atr:.2f} vs average {avg_atr:.2f} over the last {atr_lookback} days), volatility contracting"
     else:
-        atr_trend = f"stabile ({atr:.2f} vs media {avg_atr:.2f} sugli ultimi {atr_lookback} giorni)"
+        atr_trend = f"stable ({atr:.2f} vs average {avg_atr:.2f} over the last {atr_lookback} days)"
 
     suggested_stop = close - (atr * atr_stop_multiple)
 
