@@ -1,0 +1,11 @@
+{
+  "cash": 6.27,
+  "currency": "USD",
+  "positions": [
+    {
+      "ticker": "SNA",
+      "quantity": 5.0,
+      "average_price": 398.7460021972656
+    }
+  ]
+}

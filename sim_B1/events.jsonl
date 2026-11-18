@@ -1,0 +1,3 @@
+{"date": "2026-08-17", "event": "buy", "ticker": "SNA", "shares": 1, "price": 398.7460021972656, "stop": 382.61}
+{"date": "2026-09-01", "event": "stop", "ticker": "SNA", "price": 382.61}
+{"date": "2026-11-13", "event": "equity", "value": 1983.86, "cash": 1983.86, "holding": null}
